@@ -58,14 +58,16 @@ from __future__ import print_function
 
 import tensorflow as tf
 
+from collections import Counter
 from tensorflow.python.platform import gfile
 from datasets import dataset_factory
+from nets.inception_resnet_v2_hdcnn import get_hdcnn_network_fn
 from nets import nets_factory
 
 slim = tf.contrib.slim
 
 tf.app.flags.DEFINE_string(
-    'model_name', 'inception_v3', 'The name of the architecture to save.')
+    'model_name', 'inception_resnet_v2_layer2', 'The name of the architecture to save.')
 
 tf.app.flags.DEFINE_boolean(
     'is_training', False,
@@ -80,7 +82,7 @@ tf.app.flags.DEFINE_integer(
     'Batch size for the exported model. Defaulted to "None" so batch size can '
     'be specified at model runtime.')
 
-tf.app.flags.DEFINE_string('dataset_name', 'imagenet',
+tf.app.flags.DEFINE_string('dataset_name', 'deepfashion_l2',
                            'The name of the dataset to use with the model.')
 
 tf.app.flags.DEFINE_integer(
@@ -89,11 +91,12 @@ tf.app.flags.DEFINE_integer(
     'evaluate the VGG and ResNet architectures which do not use a background '
     'class for the ImageNet dataset.')
 
+
 tf.app.flags.DEFINE_string(
     'output_file', '', 'Where to save the resulting file to.')
 
 tf.app.flags.DEFINE_string(
-    'dataset_dir', '', 'Directory to save intermediate dataset files to')
+    'dataset_dir', 'models/deepfashion_l2/data', 'Directory to save intermediate dataset files to')
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -105,15 +108,19 @@ def main(_):
   with tf.Graph().as_default() as graph:
     dataset = dataset_factory.get_dataset(FLAGS.dataset_name, 'train',
                                           FLAGS.dataset_dir)
-    network_fn = nets_factory.get_network_fn(
+    # get mapping from id to label names
+    second_class_labels_to_names = dataset.second_class_labels_to_names
+    l2_cate_dict = dict(Counter(second_class_labels_to_names['class1'].values()))
+    network_fn = get_hdcnn_network_fn(
         FLAGS.model_name,
-        num_classes=(dataset.num_classes - FLAGS.labels_offset),
+        hierarchy_cate_dict=l2_cate_dict,
         is_training=FLAGS.is_training)
     image_size = FLAGS.image_size or network_fn.default_image_size
     placeholder = tf.placeholder(name='input', dtype=tf.float32,
                                  shape=[FLAGS.batch_size, image_size,
                                         image_size, 3])
-    network_fn(placeholder)
+    logits, endpoints = network_fn(placeholder)
+
     graph_def = graph.as_graph_def()
     with gfile.GFile(FLAGS.output_file, 'wb') as f:
       f.write(graph_def.SerializeToString())
